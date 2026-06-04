@@ -1,0 +1,32 @@
+{
+  "name": "profitx-backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "build:render": "npm ci --include=dev && npm run build"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
+    "express": "^4.21.2",
+    "pg": "^8.16.3",
+    "uuid": "^11.1.0",
+    "bcryptjs": "^2.4.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.15.5",
+    "@types/bcryptjs": "^2.4.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

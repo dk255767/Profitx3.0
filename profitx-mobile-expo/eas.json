@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 3.0.0"
+  },
+  "build": {
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://profitx3-0.onrender.com/api",
+        "EXPO_PUBLIC_API_URL": "https://profitx3-0.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://zzbmdlxkbbyhzisbtrxo.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_Ry2PfTWFMKfGjEVlNrh_SA_5Ulf2e8h"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://profitx3-0.onrender.com/api",
+        "EXPO_PUBLIC_API_URL": "https://profitx3-0.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://zzbmdlxkbbyhzisbtrxo.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_Ry2PfTWFMKfGjEVlNrh_SA_5Ulf2e8h"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    }
+  }
+}

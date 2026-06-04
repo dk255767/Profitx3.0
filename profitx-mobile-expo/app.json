@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "ProfitX",
+    "slug": "profitx-3-0",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/app.png",
+    "scheme": "profitxmobileexpo",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/app.png",
+        "backgroundImage": "./assets/images/app.png",
+        "monochromeImage": "./assets/images/app.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.dhanush_2004.profitxmobileexpo"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/Group 236.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
+      ],
+      "@react-native-community/datetimepicker"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8396bc80-142e-4b06-871a-6a82c098b1fc"
+      },
+      "EXPO_PUBLIC_API_BASE_URL": "https://profitx3-0.onrender.com/api",
+      "EXPO_PUBLIC_API_URL": "https://profitx3-0.onrender.com",
+      "EXPO_PUBLIC_SUPABASE_URL": "https://zzbmdlxkbbyhzisbtrxo.supabase.co",
+      "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_Ry2PfTWFMKfGjEVlNrh_SA_5Ulf2e8h"
+    },
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  }
+}
