@@ -29,6 +29,7 @@ import { getUserScopedKey, STORAGE_KEYS } from '../../constants/app-flow';
 const LinearGradient = _LG as React.ComponentType<any>;
 
 const MONTHS = [
+  'All Months',
   'January',
   'February',
   'March',
@@ -43,7 +44,20 @@ const MONTHS = [
   'December',
 ];
 
-const YEARS = ['2023', '2024', '2025', '2026'];
+// Generate years dynamically: from 2024 up to (current year + 4)
+const generateYears = (): string[] => {
+  const currentYear = new Date().getFullYear();
+  const startYear = 2024;
+  const endYear = currentYear + 4;
+  const years: string[] = [];
+  for (let y = startYear; y <= endYear; y++) {
+    years.push(String(y));
+  }
+  return years;
+};
+
+const YEARS = generateYears();
+
 const OWNER_NAME = 'Chief';
 const SHOP_NAME = 'Your Shop Name';
 const COMPLETED_PAYMENTS_KEY = 'completed_payments';
@@ -90,6 +104,10 @@ const getVendorTotalPaid = (vendor: FinanceVendor) =>
 const getVendorTotalSavings = (vendor: FinanceVendor) =>
   vendor.loanAmount + getVendorTotalPaid(vendor);
 
+// Returns the actual latest payment across ALL months/years (not filtered)
+const getActualLatestPayment = (vendor: FinanceVendor): PaymentRecord | undefined =>
+  [...vendor.payments].sort((a, b) => b.timestamp - a.timestamp)[0];
+
 const parseLoanDateMonthYear = (loanDate: string) => {
   const normalized = loanDate.trim();
   const match = /^([A-Za-z]{3})\s+\d{1,2},\s+(\d{4})$/.exec(normalized);
@@ -114,9 +132,15 @@ type SavingHistoryRecord = {
 export default function SavingScreen() {
   const historyHydratedRef = useRef(false);
   const [vendors, setVendors] = useState<FinanceVendor[]>(INITIAL_VENDORS);
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [selectedYear, setSelectedYear] = useState<string | null>(null);
-  const [clockTick, setClockTick] = useState(() => Date.now());
+
+  // Auto-select current month and year
+  const now = new Date();
+  // MONTHS[0] is 'All Months', real months start at index 1
+  const currentMonthName = MONTHS[now.getMonth() + 1];
+  const currentYearStr = String(now.getFullYear());
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthName);
+  const [selectedYear, setSelectedYear] = useState<string>(currentYearStr);
   const [filterOpen, setFilterOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [shopName, setShopName] = useState(SHOP_NAME);
@@ -131,12 +155,15 @@ export default function SavingScreen() {
   const [historyStorageKey, setHistoryStorageKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedHistoryCardId, setSelectedHistoryCardId] = useState<string | null>(null);
+
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
     if (hour < 17) return 'Good Afternoon';
     return 'Good Evening';
   }, []);
+
+  const isAllMonths = selectedMonth === 'All Months';
 
   const loadShopName = React.useCallback(async () => {
     try {
@@ -336,14 +363,6 @@ export default function SavingScreen() {
       .catch(() => {});
   }, [historyVendors, historyStorageKey]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setClockTick(Date.now());
-    }, 60 * 60 * 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
   const activePaymentVendor = useMemo(
     () => vendors.find(vendor => vendor.id === paymentVendorId) ?? null,
     [paymentVendorId, vendors],
@@ -359,32 +378,28 @@ export default function SavingScreen() {
     [historyVendors, selectedHistoryCardId],
   );
 
-  const currentMonth = useMemo(() => MONTHS[new Date(clockTick).getMonth()], [clockTick]);
-  const currentYear = useMemo(() => String(new Date(clockTick).getFullYear()), [clockTick]);
-  const activeMonth = selectedMonth ?? currentMonth;
-  const activeYear = selectedYear ?? currentYear;
+  const monthlyPaidAmount = useMemo(() => {
+    const activeMonthShort = isAllMonths ? null : selectedMonth.slice(0, 3);
 
-  const monthlyPaidAmount = useMemo(
-    () => {
-      const activeMonthShort = activeMonth.slice(0, 3);
+    return vendors.reduce((sum, vendor) => {
+      const monthlyPaid = vendor.payments
+        .filter(payment =>
+          (isAllMonths || payment.month === selectedMonth) &&
+          payment.year === selectedYear,
+        )
+        .reduce((acc, payment) => acc + payment.amount, 0);
 
-      return vendors.reduce((sum, vendor) => {
-        const monthlyPaid = vendor.payments
-          .filter(payment => payment.month === activeMonth && payment.year === activeYear)
-          .reduce((acc, payment) => acc + payment.amount, 0);
-
-        const loanDateInfo = parseLoanDateMonthYear(vendor.loanDate);
-        const initialAmountForCreatedMonth = loanDateInfo
-          && loanDateInfo.monthShort === activeMonthShort
-          && loanDateInfo.year === activeYear
+      // Include initialAmount if the card was created in the selected month/year
+      const loanDateInfo = parseLoanDateMonthYear(vendor.loanDate);
+      const initialAmountForCreatedMonth =
+        loanDateInfo && loanDateInfo.year === selectedYear &&
+        (isAllMonths || loanDateInfo.monthShort === activeMonthShort)
           ? vendor.loanAmount
           : 0;
 
-        return sum + monthlyPaid + initialAmountForCreatedMonth;
-      }, 0);
-    },
-    [activeMonth, activeYear, vendors],
-  );
+      return sum + monthlyPaid + initialAmountForCreatedMonth;
+    }, 0);
+  }, [selectedMonth, selectedYear, vendors, isAllMonths]);
 
   const totalSavingsAmount = useMemo(
     () => vendors
@@ -394,19 +409,20 @@ export default function SavingScreen() {
   );
 
   const paidAmountLabel = useMemo(
-    () => `This Month Saved: ${formatCurrency(monthlyPaidAmount)}`,
-    [monthlyPaidAmount],
+    () => `${isAllMonths ? selectedYear : `${selectedMonth.slice(0, 3)} ${selectedYear}`} Saved: ${formatCurrency(monthlyPaidAmount)}`,
+    [monthlyPaidAmount, selectedMonth, selectedYear, isAllMonths],
   );
 
   const createDateLabel = () => {
     const today = new Date();
-    const shortMonth = MONTHS[today.getMonth()].slice(0, 3);
+    // MONTHS[0] is 'All Months', real months start at index 1
+    const shortMonth = MONTHS[today.getMonth() + 1].slice(0, 3);
     return `${shortMonth} ${today.getDate()}`;
   };
 
   const createLoanDateLabel = () => {
     const today = new Date();
-    const shortMonth = MONTHS[today.getMonth()].slice(0, 3);
+    const shortMonth = MONTHS[today.getMonth() + 1].slice(0, 3);
     return `${shortMonth} ${today.getDate()}, ${today.getFullYear()}`;
   };
 
@@ -419,14 +435,17 @@ export default function SavingScreen() {
       return;
     }
 
+    // When "All Months" is selected, save under the actual current month
+    const paymentMonth = isAllMonths ? MONTHS[new Date().getMonth() + 1] : selectedMonth;
+
     let createdDeposit: PaymentRecord;
     try {
       const response = await apiFetch(`/saving/cards/${activePaymentVendor.id}/deposits`, {
         method: 'POST',
         body: JSON.stringify({
           amount: enteredAmount,
-          month: activeMonth,
-          year: activeYear,
+          month: paymentMonth,
+          year: selectedYear,
           paidOn: createDateLabel(),
         }),
       });
@@ -439,8 +458,8 @@ export default function SavingScreen() {
       const payload = await response.json();
       createdDeposit = {
         amount: Number(payload?.amount ?? enteredAmount),
-        month: String(payload?.month ?? activeMonth),
-        year: String(payload?.year ?? activeYear),
+        month: String(payload?.month ?? paymentMonth),
+        year: String(payload?.year ?? selectedYear),
         paidOn: String(payload?.paidOn ?? createDateLabel()),
         timestamp: Number(payload?.timestamp ?? Date.now()),
       };
@@ -547,10 +566,22 @@ export default function SavingScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setVendors(prev => prev.filter(v => v.id !== vendorId));
-            setHistoryVendors(prev => prev.filter(v => v.cardId !== vendorId));
-            setSelectedVendorId(null);
+          onPress: async () => {
+            try {
+              const resp = await apiFetch(`/saving/cards/${vendorId}`, { method: 'DELETE' });
+              if (resp.ok || resp.status === 204) {
+                setVendors(prev => prev.filter(v => v.id !== vendorId));
+                setHistoryVendors(prev => prev.filter(v => v.cardId !== vendorId));
+                setSelectedVendorId(null);
+                return;
+              }
+
+              let detail = '';
+              try { detail = await resp.text(); } catch {}
+              Alert.alert('Delete failed', `Server error: ${resp.status} ${detail}`);
+            } catch (e) {
+              Alert.alert('Delete failed', 'Unable to reach server.');
+            }
           },
         },
       ],
@@ -647,11 +678,13 @@ export default function SavingScreen() {
               <View style={styles.bannerFilters}>
                 <Text style={styles.filterInlineLabel}>Month:</Text>
                 <TouchableOpacity style={styles.filterMiniBox} onPress={() => setFilterOpen(true)}>
-                  <Text style={styles.filterMiniValue}>{activeMonth.slice(0, 3)}</Text>
+                  <Text style={styles.filterMiniValue}>
+                    {selectedMonth === 'All Months' ? 'All' : selectedMonth.slice(0, 3)}
+                  </Text>
                 </TouchableOpacity>
                 <Text style={styles.filterInlineLabel}>Year:</Text>
                 <TouchableOpacity style={[styles.filterMiniBox, styles.filterMiniBoxYear]} onPress={() => setFilterOpen(true)}>
-                  <Text style={styles.filterMiniValue}>{activeYear}</Text>
+                  <Text style={styles.filterMiniValue}>{selectedYear}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   activeOpacity={0.86}
@@ -706,49 +739,49 @@ export default function SavingScreen() {
             {vendors
               .filter(v => !historyVendors.some(h => h.cardId === v.id))
               .map((vendor, index) => {
-              const latestPayment = [...vendor.payments]
-                .sort((a, b) => b.timestamp - a.timestamp)[0];
-              const latestSavingAmount = latestPayment?.amount ?? vendor.loanAmount;
-              const totalSavedAmount = getVendorTotalSavings(vendor);
+                // Actual latest payment across ALL months/years (not filtered)
+                const actualLatestPayment = getActualLatestPayment(vendor);
+                const latestSavingAmount = actualLatestPayment?.amount ?? vendor.loanAmount;
+                const totalSavedAmount = getVendorTotalSavings(vendor);
 
-              return (
-                <TouchableOpacity
-                  key={`saving-vendor-${vendor.id}-${index}`}
-                  style={styles.vendorCard}
-                  activeOpacity={0.9}
-                  onPress={() => setSelectedVendorId(vendor.id)}
-                >
-                  <View style={styles.vendorAvatar}>
-                    <Text style={styles.vendorAvatarText}>{vendor.name.charAt(0)}</Text>
-                  </View>
-
-                  <View style={styles.vendorMeta}>
-                    <View style={styles.vendorRow}>
-                      <Text style={styles.vendorName} numberOfLines={1}>{vendor.name}</Text>
-                      <Text style={styles.vendorAmount}>{formatCurrency(latestSavingAmount)}</Text>
+                return (
+                  <TouchableOpacity
+                    key={`saving-vendor-${vendor.id}-${index}`}
+                    style={styles.vendorCard}
+                    activeOpacity={0.9}
+                    onPress={() => setSelectedVendorId(vendor.id)}
+                  >
+                    <View style={styles.vendorAvatar}>
+                      <Text style={styles.vendorAvatarText}>{vendor.name.charAt(0)}</Text>
                     </View>
-                    <View style={styles.vendorRow}>
-                      <Text style={styles.vendorLastPaid}>
-                        Last Saved: {latestPayment ? latestPayment.paidOn : '--'}
-                      </Text>
-                      <View style={styles.vendorPendingRow}>
-                        <Text style={styles.vendorPending}>Your Savings {formatCurrency(totalSavedAmount)}</Text>
-                        <TouchableOpacity
-                          style={styles.payButton}
-                          onPress={() => {
-                            setPaymentVendorId(vendor.id);
-                            setPaymentAmountInput('');
-                          }}
-                          activeOpacity={0.86}
-                        >
-                          <Text style={styles.payButtonText}>Save</Text>
-                        </TouchableOpacity>
+
+                    <View style={styles.vendorMeta}>
+                      <View style={styles.vendorRow}>
+                        <Text style={styles.vendorName} numberOfLines={1}>{vendor.name}</Text>
+                        <Text style={styles.vendorAmount}>{formatCurrency(latestSavingAmount)}</Text>
+                      </View>
+                      <View style={styles.vendorRow}>
+                        <Text style={styles.vendorLastPaid}>
+                          Last Saved: {actualLatestPayment ? actualLatestPayment.paidOn : '--'}
+                        </Text>
+                        <View style={styles.vendorPendingRow}>
+                          <Text style={styles.vendorPending}>Your Savings {formatCurrency(totalSavedAmount)}</Text>
+                          <TouchableOpacity
+                            style={styles.payButton}
+                            onPress={() => {
+                              setPaymentVendorId(vendor.id);
+                              setPaymentAmountInput('');
+                            }}
+                            activeOpacity={0.86}
+                          >
+                            <Text style={styles.payButtonText}>Save</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                  </TouchableOpacity>
+                );
+              })}
           </View>
         </ScrollView>
       </LinearGradient>
@@ -831,7 +864,9 @@ export default function SavingScreen() {
           <Pressable style={styles.filterModal} onPress={() => {}}>
             <Text style={styles.filterTitle}>Update Savings</Text>
             <Text style={styles.paymentContext}>{activePaymentVendor?.name}</Text>
-            <Text style={styles.paymentSubtext}>Save for {activeMonth} {activeYear}</Text>
+            <Text style={styles.paymentSubtext}>
+              Save for {isAllMonths ? `${MONTHS[new Date().getMonth() + 1]} ${selectedYear}` : `${selectedMonth} ${selectedYear}`}
+            </Text>
 
             <TextInput
               value={paymentAmountInput}
@@ -875,7 +910,7 @@ export default function SavingScreen() {
             <Text style={styles.filterGroupLabel}>Month</Text>
             <View style={styles.chipsWrap}>
               {MONTHS.map((month) => {
-                const isActive = activeMonth === month;
+                const isActive = selectedMonth === month;
                 return (
                   <TouchableOpacity
                     key={month}
@@ -892,7 +927,7 @@ export default function SavingScreen() {
             <Text style={styles.filterGroupLabel}>Year</Text>
             <View style={styles.yearRow}>
               {YEARS.map((year) => {
-                const isActive = activeYear === year;
+                const isActive = selectedYear === year;
                 return (
                   <TouchableOpacity
                     key={year}
@@ -1052,9 +1087,10 @@ export default function SavingScreen() {
             <Text style={styles.detailMeta}>Completed On: {selectedHistoryCard?.completedOn}</Text>
             <Text style={styles.detailMeta}>Initial Amount: {selectedHistoryCard ? formatCurrency(selectedHistoryCard.initialAmount) : '--'}</Text>
             <Text style={styles.detailMeta}>Total Deposits: {selectedHistoryCard ? formatCurrency(selectedHistoryCard.totalDeposits) : '--'}</Text>
-           <Text style={[styles.detailMeta, { color: '#34C759' }]}>
-  Total Savings: {selectedHistoryCard ? formatCurrency(selectedHistoryCard.totalSavings) : '--'}
-</Text>
+            <Text style={[styles.detailMeta, { color: '#34C759' }]}>
+              Total Savings: {selectedHistoryCard ? formatCurrency(selectedHistoryCard.totalSavings) : '--'}
+            </Text>
+
             <Text style={styles.historyTitle}>All Saving Entries</Text>
             <ScrollView style={styles.historyList} showsVerticalScrollIndicator={false}>
               {selectedHistoryCard && selectedHistoryCard.payments.length > 0 ? (
@@ -1598,12 +1634,12 @@ const styles = StyleSheet.create({
   },
   yearRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 14,
   },
   yearPill: {
-    flex: 1,
-    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 11,
     borderWidth: 1,

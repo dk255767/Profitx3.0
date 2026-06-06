@@ -10,7 +10,7 @@ export const STORAGE_KEYS = {
   shopName: 'shop_name',
 } as const;
 
-export type AppRoute = '/login' | '/getstarted' | '/detail' | '/(tabs)';
+export type AppRoute = '/login' | '/get-started' | '/detail' | '/(tabs)';
 
 export function normalizeUserEmail(value: string | null | undefined): string {
   return String(value ?? '').trim().toLowerCase();
@@ -42,7 +42,7 @@ export const resolveAppRoute = (snapshot: FlowSnapshot): AppRoute => {
   const isAuthed = snapshot.isLoggedIn === 'true' && Boolean(snapshot.authToken);
 
   if (!isAuthed) return '/login';
-  if (snapshot.profileCreated !== 'true' && snapshot.isFirstTime === 'true') return '/getstarted';
+  if (snapshot.profileCreated !== 'true' && snapshot.isFirstTime === 'true') return '/get-started';
   if (snapshot.profileCreated !== 'true') return '/detail';
   return '/(tabs)';
 };

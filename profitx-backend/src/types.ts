@@ -4,6 +4,7 @@ export type PaymentRecord = {
   year: string;
   paidOn: string;
   timestamp: number;
+  interest?: number;
 };
 
 export type FinanceVendor = {
@@ -20,6 +21,22 @@ export type SavingCard = {
   startedOn: string;
   initialAmount: number;
   deposits: PaymentRecord[];
+};
+
+export type PurchaseRecord = {
+  id?: string;
+  name: string;
+  amount: number;
+  paidOn: string;
+  timestamp: number;
+};
+
+export type ProductItem = {
+  id: string;
+  name: string;
+  createdOn: string;
+  totalValue: number;
+  purchases: PurchaseRecord[];
 };
 
 export type AppSettings = {
@@ -45,6 +62,9 @@ export type AppData = {
   };
   saving: {
     cards: SavingCard[];
+  };
+  product: {
+    products: ProductItem[];
   };
 };
 

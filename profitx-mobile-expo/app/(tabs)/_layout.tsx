@@ -64,6 +64,13 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <Ionicons size={24} name="wallet-outline" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="product"
+        options={{
+          title: 'Product',
+          tabBarIcon: ({ color }) => <Ionicons size={24} name="cart-outline" color={color} />,
+        }}
+      />
     </Tabs>
   );
 }

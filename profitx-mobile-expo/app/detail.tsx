@@ -34,10 +34,10 @@ export default function DetailScreen() {
   useEffect(() => {
     let mounted = true;
 
-    getAppRoute()
+      getAppRoute()
       .then((nextRoute) => {
         if (!mounted) return;
-        if (nextRoute === '/detail' || nextRoute === '/getstarted') return;
+        if (nextRoute === '/detail' || nextRoute === '/get-started') return;
         router.replace(nextRoute);
       })
       .catch(() => {

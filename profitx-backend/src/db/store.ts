@@ -2,7 +2,7 @@ import { Pool, QueryResultRow } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
 import { config } from '../config';
-import { AppData, FinanceSnapshot, PaymentRecord, User } from '../types';
+import { AppData, FinanceSnapshot, PaymentRecord, User, PurchaseRecord, ProductItem } from '../types';
 
 const defaultData: AppData = {
   users: [
@@ -24,6 +24,9 @@ const defaultData: AppData = {
   },
   saving: {
     cards: [],
+  },
+  product: {
+    products: [],
   },
 };
 
@@ -71,6 +74,7 @@ type PaymentRow = {
   year: string;
   paid_on: string;
   timestamp: number | string;
+  interest?: number | string;
 };
 
 type CardRow = {
@@ -179,6 +183,7 @@ async function initializeData(): Promise<void> {
       id BIGSERIAL PRIMARY KEY,
       vendor_id TEXT NOT NULL REFERENCES finance_vendors(id) ON DELETE CASCADE,
       amount NUMERIC NOT NULL,
+      interest NUMERIC NOT NULL DEFAULT 0,
       month TEXT NOT NULL,
       year TEXT NOT NULL,
       paid_on TEXT NOT NULL,
@@ -200,6 +205,23 @@ async function initializeData(): Promise<void> {
       amount NUMERIC NOT NULL,
       month TEXT NOT NULL,
       year TEXT NOT NULL,
+      paid_on TEXT NOT NULL,
+      timestamp BIGINT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS product_products (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_on TEXT NOT NULL,
+      total_value NUMERIC NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS product_purchases (
+      id BIGSERIAL PRIMARY KEY,
+      product_id TEXT NOT NULL REFERENCES product_products(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      amount NUMERIC NOT NULL,
       paid_on TEXT NOT NULL,
       timestamp BIGINT NOT NULL
     );
@@ -254,6 +276,7 @@ async function initializeData(): Promise<void> {
 
   // Ensure `total_savings` column exists for older DBs, then populate it
   await pool.query(`ALTER TABLE saving_cards ADD COLUMN IF NOT EXISTS total_savings NUMERIC NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE finance_payments ADD COLUMN IF NOT EXISTS interest NUMERIC NOT NULL DEFAULT 0`);
   await pool.query(`
     UPDATE saving_cards sc
     SET total_savings = COALESCE(sc.initial_amount, 0) + COALESCE(sub.sum_deposits, 0)
@@ -274,19 +297,22 @@ function toPaymentRecord(row: PaymentRow | DepositRow): PaymentRecord {
     year: row.year,
     paidOn: row.paid_on,
     timestamp: Number(row.timestamp),
+    interest: Number((row as any).interest ?? 0),
   };
 }
 
 export async function readData(): Promise<AppData> {
   await initializeData();
 
-  const [usersResult, settingsResult, vendorsResult, paymentsResult, cardsResult, depositsResult] = await Promise.all([
+  const [usersResult, settingsResult, vendorsResult, paymentsResult, cardsResult, depositsResult, productsResult, purchasesResult] = await Promise.all([
     pool.query('SELECT id, email, password, supabase_id, role, shop_name, owner_name FROM users'),
     pool.query('SELECT shop_name, owner_name FROM settings WHERE id = 1 LIMIT 1'),
     pool.query('SELECT id, user_id, name, loan_date, loan_amount FROM finance_vendors'),
-    pool.query('SELECT vendor_id, amount, month, year, paid_on, timestamp FROM finance_payments ORDER BY timestamp ASC'),
-    pool.query('SELECT id, user_id, name, started_on, initial_amount FROM saving_cards'),
+    pool.query('SELECT vendor_id, amount, interest, month, year, paid_on, timestamp FROM finance_payments ORDER BY timestamp ASC'),
+    pool.query('SELECT id, user_id, name, started_on, initial_amount, total_savings FROM saving_cards'),
     pool.query('SELECT card_id, amount, month, year, paid_on, timestamp FROM saving_deposits ORDER BY timestamp ASC'),
+    pool.query('SELECT id, user_id, name, created_on, total_value FROM product_products'),
+    pool.query('SELECT id, product_id, name, amount, paid_on, timestamp FROM product_purchases ORDER BY timestamp ASC'),
   ]);
 
   const users: User[] = usersResult.rows.map((row: any) => ({
@@ -298,6 +324,8 @@ export async function readData(): Promise<AppData> {
     shopName: row.shop_name,
     ownerName: row.owner_name,
   }));
+
+  const settingsRow = settingsResult.rows[0];
 
   const paymentMap = new Map<string, PaymentRecord[]>();
   paymentsResult.rows.forEach((row: PaymentRow) => {
@@ -313,7 +341,20 @@ export async function readData(): Promise<AppData> {
     depositMap.set(row.card_id, items);
   });
 
-  const settingsRow = settingsResult.rows[0];
+  const purchaseMap = new Map<string, PurchaseRecord[]>();
+  purchasesResult.rows.forEach((row: any) => {
+    const items = purchaseMap.get(row.product_id) ?? [];
+    items.push({ id: String(row.id ?? ''), name: row.name, amount: Number(row.amount), paidOn: row.paid_on, timestamp: Number(row.timestamp) });
+    purchaseMap.set(row.product_id, items);
+  });
+
+  const products: ProductItem[] = productsResult.rows.map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    createdOn: row.created_on,
+    totalValue: Number(row.total_value),
+    purchases: purchaseMap.get(row.id) ?? [],
+  }));
 
   return {
     users,
@@ -337,7 +378,11 @@ export async function readData(): Promise<AppData> {
         startedOn: row.started_on,
         initialAmount: Number(row.initial_amount),
         deposits: depositMap.get(row.id) ?? [],
+        totalSavings: Number((row as any).total_savings ?? row.initial_amount ?? 0),
       })),
+    },
+    product: {
+      products,
     },
   };
 }
@@ -354,6 +399,8 @@ export async function writeData(next: AppData): Promise<void> {
     await client.query('DELETE FROM finance_vendors');
     await client.query('DELETE FROM saving_deposits');
     await client.query('DELETE FROM saving_cards');
+    await client.query('DELETE FROM product_purchases');
+    await client.query('DELETE FROM product_products');
     await client.query('DELETE FROM users');
 
     for (const user of next.users) {
@@ -388,8 +435,8 @@ export async function writeData(next: AppData): Promise<void> {
 
       for (const payment of vendor.payments) {
         await client.query(
-          'INSERT INTO finance_payments (vendor_id, amount, month, year, paid_on, timestamp) VALUES ($1, $2, $3, $4, $5, $6)',
-          [vendor.id, payment.amount, payment.month, payment.year, payment.paidOn, payment.timestamp],
+          'INSERT INTO finance_payments (vendor_id, amount, interest, month, year, paid_on, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [vendor.id, payment.amount, (payment as any).interest ?? 0, payment.month, payment.year, payment.paidOn, payment.timestamp],
         );
       }
     }
@@ -406,6 +453,20 @@ export async function writeData(next: AppData): Promise<void> {
           [card.id, deposit.amount, deposit.month, deposit.year, deposit.paidOn, deposit.timestamp],
         );
       }
+
+        for (const product of (next.product?.products ?? [])) {
+          await client.query(
+            'INSERT INTO product_products (id, name, created_on, total_value) VALUES ($1, $2, $3, $4)',
+            [product.id, product.name, product.createdOn, product.totalValue],
+          );
+
+          for (const purchase of (product.purchases ?? [])) {
+            await client.query(
+              'INSERT INTO product_purchases (product_id, name, amount, paid_on, timestamp) VALUES ($1, $2, $3, $4, $5)',
+              [product.id, purchase.name, purchase.amount, purchase.paidOn, purchase.timestamp],
+            );
+          }
+        }
     }
 
     await client.query('COMMIT');
@@ -614,7 +675,7 @@ export async function listFinanceVendorsByUser(userId: string) {
 
   const [vendorsResult, paymentsResult] = await Promise.all([
     pool.query('SELECT id, user_id, name, loan_date, loan_amount FROM finance_vendors WHERE user_id = $1 ORDER BY id ASC', [userId]),
-    pool.query(`SELECT p.vendor_id, p.amount, p.month, p.year, p.paid_on, p.timestamp
+    pool.query(`SELECT p.vendor_id, p.amount, p.interest, p.month, p.year, p.paid_on, p.timestamp
        FROM finance_payments p
        INNER JOIN finance_vendors v ON v.id = p.vendor_id
        WHERE v.user_id = $1
@@ -668,10 +729,21 @@ export async function patchFinanceVendorByUser(userId: string, vendorId: string,
   return vendors.find((vendor: any) => vendor.id === vendorId) ?? null;
 }
 
+export async function deleteFinanceVendorByUser(userId: string, vendorId: string): Promise<boolean> {
+  await initializeData();
+
+  const result = await pool.query(
+    'DELETE FROM finance_vendors WHERE id = $1 AND user_id = $2',
+    [vendorId, userId],
+  );
+
+  return result.rowCount === 1;
+}
+
 export async function addFinancePaymentByUser(
   userId: string,
   vendorId: string,
-  payment: { amount: number; month: string; year: string; paidOn: string; timestamp: number },
+  payment: { amount: number; month: string; year: string; paidOn: string; timestamp: number; interest?: number },
 ) {
   await initializeData();
 
@@ -684,11 +756,30 @@ export async function addFinancePaymentByUser(
   }
 
   await pool.query(
-    'INSERT INTO finance_payments (vendor_id, amount, month, year, paid_on, timestamp) VALUES ($1, $2, $3, $4, $5, $6)',
-    [vendorId, payment.amount, payment.month, payment.year, payment.paidOn, payment.timestamp],
+    'INSERT INTO finance_payments (vendor_id, amount, interest, month, year, paid_on, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [vendorId, payment.amount, payment.interest ?? 0, payment.month, payment.year, payment.paidOn, payment.timestamp],
   );
 
   return payment;
+}
+
+export async function deleteFinancePaymentByUser(userId: string, vendorId: string, timestamp: number): Promise<boolean> {
+  await initializeData();
+
+  const vendorResult = await pool.query(
+    'SELECT id FROM finance_vendors WHERE id = $1 AND user_id = $2 LIMIT 1',
+    [vendorId, userId],
+  );
+  if (vendorResult.rowCount !== 1) {
+    return false;
+  }
+
+  const result = await pool.query(
+    'DELETE FROM finance_payments WHERE vendor_id = $1 AND timestamp = $2',
+    [vendorId, timestamp],
+  );
+
+  return result.rowCount === 1;
 }
 
 export async function listSavingCardsByUser(userId: string) {
@@ -751,6 +842,17 @@ export async function patchSavingCardByUser(userId: string, cardId: string, patc
   return cards.find((card: any) => card.id === cardId) ?? null;
 }
 
+export async function deleteSavingCardByUser(userId: string, cardId: string): Promise<boolean> {
+  await initializeData();
+
+  const result = await pool.query(
+    'DELETE FROM saving_cards WHERE id = $1 AND user_id = $2',
+    [cardId, userId],
+  );
+
+  return result.rowCount === 1;
+}
+
 export async function addSavingDepositByUser(
   userId: string,
   cardId: string,
@@ -778,6 +880,105 @@ export async function addSavingDepositByUser(
   );
 
   return deposit;
+}
+
+export async function createProduct(input: { userId: string; id: string; name: string; createdOn: string; totalValue: number }): Promise<void> {
+  await initializeData();
+
+  await pool.query(
+    'INSERT INTO product_products (id, user_id, name, created_on, total_value) VALUES ($1, $2, $3, $4, $5)',
+    [input.id, input.userId, input.name, input.createdOn, input.totalValue],
+  );
+}
+
+export async function listProductsByUser(userId: string) {
+  await initializeData();
+
+  const [productsResult, purchasesResult] = await Promise.all([
+    pool.query('SELECT id, user_id, name, created_on, total_value FROM product_products WHERE user_id = $1 ORDER BY id ASC', [userId]),
+    pool.query(`SELECT p.product_id, p.id, p.name, p.amount, p.paid_on, p.timestamp
+       FROM product_purchases p
+       INNER JOIN product_products pr ON pr.id = p.product_id
+       WHERE pr.user_id = $1
+       ORDER BY p.timestamp ASC`, [userId]),
+  ]);
+
+  const purchaseMap = new Map<string, PurchaseRecord[]>();
+  purchasesResult.rows.forEach((row: any) => {
+    const items = purchaseMap.get(row.product_id) ?? [];
+    items.push({ id: String(row.id ?? ''), name: row.name, amount: Number(row.amount), paidOn: row.paid_on, timestamp: Number(row.timestamp) });
+    purchaseMap.set(row.product_id, items);
+  });
+
+  return productsResult.rows.map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    createdOn: row.created_on,
+    totalValue: Number(row.total_value),
+    purchases: purchaseMap.get(row.id) ?? [],
+  }));
+}
+
+export async function patchProductByUser(userId: string, productId: string, patch: { name?: string; createdOn?: string; totalValue?: number }) {
+  await initializeData();
+
+  const updates: string[] = [];
+  const values: Array<string | number> = [];
+
+  if (patch.name !== undefined) {
+    updates.push(`name = $${values.length + 1}`);
+    values.push(patch.name);
+  }
+  if (patch.createdOn !== undefined) {
+    updates.push(`created_on = $${values.length + 1}`);
+    values.push(patch.createdOn);
+  }
+  if (patch.totalValue !== undefined) {
+    updates.push(`total_value = $${values.length + 1}`);
+    values.push(patch.totalValue);
+  }
+
+  if (updates.length > 0) {
+    values.push(productId, userId);
+    await pool.query(
+      `UPDATE product_products SET ${updates.join(', ')} WHERE id = $${values.length - 1} AND user_id = $${values.length}`,
+      values,
+    );
+  }
+
+  const products = await listProductsByUser(userId);
+  return products.find((p: any) => p.id === productId) ?? null;
+}
+
+export async function deleteProductByUser(userId: string, productId: string): Promise<boolean> {
+  await initializeData();
+
+  const result = await pool.query(
+    'DELETE FROM product_products WHERE id = $1 AND user_id = $2',
+    [productId, userId],
+  );
+
+  return result.rowCount === 1;
+}
+
+export async function addProductPurchaseByUser(
+  userId: string,
+  productId: string,
+  purchase: { name: string; amount: number; paidOn: string; timestamp: number },
+) {
+  await initializeData();
+
+  const productResult = await pool.query('SELECT id FROM product_products WHERE id = $1 AND user_id = $2 LIMIT 1', [productId, userId]);
+  if (productResult.rowCount !== 1) {
+    return null;
+  }
+
+  await pool.query(
+    'INSERT INTO product_purchases (product_id, name, amount, paid_on, timestamp) VALUES ($1, $2, $3, $4, $5)',
+    [productId, purchase.name, purchase.amount, purchase.paidOn, purchase.timestamp],
+  );
+
+  return purchase;
 }
 
 export async function getFinanceSnapshotByUser(userId: string): Promise<FinanceSnapshot> {

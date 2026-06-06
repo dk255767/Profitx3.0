@@ -66,6 +66,7 @@ const MENU_ITEMS = [
   { key: 'home',     label: 'Home',     image: require('../assets/images/home.png'),  icon: null },
   { key: 'data',     label: 'Data',     image: require('../assets/images/note.png'),  icon: null },
   { key: 'finance',  label: 'Finance',  image: require('../assets/images/money.png'), icon: null },
+{ key: 'product', label: 'Product', image: null, icon: 'cart-outline' },
   { key: 'saving',   label: 'Saving',   image: require('../assets/images/saveicon.png'), icon: null },
   { key: 'completed', label: 'Completed Payment', image: null, icon: 'checkmark-done-outline' },
   { key: 'edit', label: 'Edit Profile', image: null, icon: 'create-outline' },
@@ -247,6 +248,24 @@ export default function ProfileDrawer({ visible, onClose }: Props) {
     }
   };
 
+  const handleBuyOtpIn = async () => {
+    try {
+      Alert.alert('Purchasing', 'Attempting to purchase OTPin...');
+      const resp = await apiFetch('/purchase/otpin', { method: 'POST' });
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => 'Purchase failed');
+        Alert.alert('Purchase failed', text || 'Unable to complete purchase.');
+        return;
+      }
+      const data = await resp.json().catch(() => null);
+      Alert.alert('Success', data?.message ?? 'OTPin purchased successfully');
+      onClose();
+    } catch (e) {
+      console.warn('OTPin purchase error', e);
+      Alert.alert('Error', 'Unable to purchase OTPin now. Please try again later.');
+    }
+  };
+
   useEffect(() => {
     if (visible) {
       Animated.parallel([
@@ -322,6 +341,10 @@ export default function ProfileDrawer({ visible, onClose }: Props) {
       setActiveMenu('saving');
       return;
     }
+    if (pathname.includes('/product')) {
+  setActiveMenu('product');
+  return;
+}
     if (pathname.includes('/finance')) {
       setActiveMenu('finance');
       return;
@@ -355,6 +378,12 @@ export default function ProfileDrawer({ visible, onClose }: Props) {
       setEditOpen(true);
       return;
     }
+
+   if (key === 'product') {
+  router.push('/(tabs)/product');
+  onClose();
+  return;
+}
 
     if (key === 'home') {
       router.push('/(tabs)');

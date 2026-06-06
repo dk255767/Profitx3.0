@@ -11,6 +11,7 @@ import { dataRouter } from './routes/data';
 import { financeRouter } from './routes/finance';
 import { healthRouter } from './routes/health';
 import { savingRouter } from './routes/saving';
+import { productRouter } from './routes/product';
 import { settingsRouter } from './routes/settings';
 
 const app = express();
@@ -32,6 +33,7 @@ app.use('/api', requireAuth, settingsRouter);
 app.use('/api', requireAuth, dataRouter);
 app.use('/api', requireAuth, financeRouter);
 app.use('/api', requireAuth, savingRouter);
+app.use('/api', requireAuth, productRouter);
 
 app.use(notFound);
 app.use(errorHandler);

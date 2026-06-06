@@ -29,6 +29,7 @@ import { getUserScopedKey, STORAGE_KEYS } from '../../constants/app-flow';
 const LinearGradient = _LG as React.ComponentType<any>;
 
 const MONTHS = [
+  'All Months',
   'January',
   'February',
   'March',
@@ -43,7 +44,20 @@ const MONTHS = [
   'December',
 ];
 
-const YEARS = ['2023', '2024', '2025', '2026'];
+// Generate years dynamically: from 2024 up to (current year + 4)
+const generateYears = (): string[] => {
+  const currentYear = new Date().getFullYear();
+  const startYear = 2024;
+  const endYear = currentYear + 4;
+  const years: string[] = [];
+  for (let y = startYear; y <= endYear; y++) {
+    years.push(String(y));
+  }
+  return years;
+};
+
+const YEARS = generateYears();
+
 const OWNER_NAME = 'Chief';
 const SHOP_NAME = 'Your Shop Name';
 const FINANCE_COMPLETED_PAYMENTS_KEY = 'finance_completed_payments_v1';
@@ -54,6 +68,7 @@ type PaymentRecord = {
   year: string;
   paidOn: string;
   timestamp: number;
+  interest?: number;
 };
 
 type FinanceVendor = {
@@ -121,17 +136,31 @@ const getVendorCompletedOn = (vendor: FinanceVendor) => {
   return latestPayment?.paidOn ?? '--';
 };
 
+const getVendorTotalInterest = (vendor: FinanceVendor) =>
+  vendor.payments.reduce((sum, payment) => sum + (Number(payment.interest ?? 0)), 0);
+
+// Returns the actual latest payment across ALL months/years (not filtered)
+const getActualLatestPayment = (vendor: FinanceVendor): PaymentRecord | undefined =>
+  [...vendor.payments].sort((a, b) => b.timestamp - a.timestamp)[0];
+
 export default function FinanceScreen() {
   const historyHydratedRef = useRef(false);
   const [vendors, setVendors] = useState<FinanceVendor[]>(INITIAL_VENDORS);
-  const [selectedMonth, setSelectedMonth] = useState('March');
-  const [selectedYear, setSelectedYear] = useState('2026');
+
+  // Auto-select current month and year
+  const now = new Date();
+  const currentMonthName = MONTHS[now.getMonth() + 1]; // +1 because index 0 is 'All Months'
+  const currentYear = String(now.getFullYear());
+
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthName);
+  const [selectedYear, setSelectedYear] = useState(currentYear);
   const [filterOpen, setFilterOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [shopName, setShopName] = useState(SHOP_NAME);
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [paymentVendorId, setPaymentVendorId] = useState<string | null>(null);
   const [paymentAmountInput, setPaymentAmountInput] = useState('');
+  const [paymentInterestInput, setPaymentInterestInput] = useState('');
   const [addVendorOpen, setAddVendorOpen] = useState(false);
   const [newVendorName, setNewVendorName] = useState('');
   const [newVendorLoanInput, setNewVendorLoanInput] = useState('');
@@ -289,14 +318,20 @@ export default function FinanceScreen() {
     [historyVendors, selectedVendorId],
   );
 
+  const isAllMonths = selectedMonth === 'All Months';
+
+  // Monthly paid amount: sum across all vendors, respecting "All Months" option
   const monthlyPaidAmount = useMemo(
     () => vendors.reduce((sum, vendor) => {
       const monthlyPaid = vendor.payments
-        .filter(payment => payment.month === selectedMonth && payment.year === selectedYear)
+        .filter(payment =>
+          (isAllMonths || payment.month === selectedMonth) &&
+          payment.year === selectedYear,
+        )
         .reduce((acc, payment) => acc + payment.amount, 0);
       return sum + monthlyPaid;
     }, 0),
-    [selectedMonth, selectedYear, vendors],
+    [selectedMonth, selectedYear, vendors, isAllMonths],
   );
 
   const remainingAmount = useMemo(
@@ -305,19 +340,20 @@ export default function FinanceScreen() {
   );
 
   const paidAmountLabel = useMemo(
-    () => `This Month Paid: ${formatCurrency(monthlyPaidAmount)}`,
-    [monthlyPaidAmount],
+    () => `${isAllMonths ? selectedYear : `${selectedMonth.slice(0, 3)} ${selectedYear}`} Paid: ${formatCurrency(monthlyPaidAmount)}`,
+    [monthlyPaidAmount, selectedMonth, selectedYear, isAllMonths],
   );
 
   const createDateLabel = () => {
     const today = new Date();
-    const shortMonth = MONTHS[today.getMonth()].slice(0, 3);
+    // MONTHS[0] is 'All Months', so real month names start at index 1
+    const shortMonth = MONTHS[today.getMonth() + 1].slice(0, 3);
     return `${shortMonth} ${today.getDate()}`;
   };
 
   const createLoanDateLabel = () => {
     const today = new Date();
-    const shortMonth = MONTHS[today.getMonth()].slice(0, 3);
+    const shortMonth = MONTHS[today.getMonth() + 1].slice(0, 3);
     return `${shortMonth} ${today.getDate()}, ${today.getFullYear()}`;
   };
 
@@ -330,6 +366,12 @@ export default function FinanceScreen() {
       return;
     }
 
+    // Interest is mandatory (can be 0)
+    if (paymentInterestInput.trim() === '' || !Number.isFinite(Number(paymentInterestInput)) || Number(paymentInterestInput) < 0) {
+      Alert.alert('Interest required', 'Enter interest amount (enter 0 if none).');
+      return;
+    }
+
     const vendorRemaining = getVendorRemaining(activePaymentVendor);
     if (vendorRemaining <= 0) {
       Alert.alert('Already settled', 'This vendor has no remaining amount.');
@@ -337,15 +379,20 @@ export default function FinanceScreen() {
     }
 
     const appliedAmount = Math.min(enteredAmount, vendorRemaining);
+
+    // For payment month: if "All Months" is selected, use the actual current month
+    const paymentMonth = isAllMonths ? MONTHS[new Date().getMonth() + 1] : selectedMonth;
+
     let createdPayment: PaymentRecord;
     try {
       const response = await apiFetch(`/finance/vendors/${activePaymentVendor.id}/payments`, {
         method: 'POST',
         body: JSON.stringify({
           amount: appliedAmount,
-          month: selectedMonth,
+          month: paymentMonth,
           year: selectedYear,
           paidOn: createDateLabel(),
+          interest: Number(paymentInterestInput),
         }),
       });
 
@@ -357,10 +404,11 @@ export default function FinanceScreen() {
       const payload = await response.json();
       createdPayment = {
         amount: Number(payload?.amount ?? appliedAmount),
-        month: String(payload?.month ?? selectedMonth),
+        month: String(payload?.month ?? paymentMonth),
         year: String(payload?.year ?? selectedYear),
         paidOn: String(payload?.paidOn ?? createDateLabel()),
         timestamp: Number(payload?.timestamp ?? Date.now()),
+        interest: Number(payload?.interest ?? (Number.isFinite(Number(paymentInterestInput)) ? Number(paymentInterestInput) : 0)),
       };
     } catch {
       Alert.alert('Payment failed', 'Unable to reach server.');
@@ -382,6 +430,7 @@ export default function FinanceScreen() {
     }
 
     setPaymentAmountInput('');
+    setPaymentInterestInput('');
     setPaymentVendorId(null);
   };
 
@@ -461,10 +510,22 @@ export default function FinanceScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setVendors(prev => prev.filter(v => v.id !== vendorId));
-            setHistoryVendors(prev => prev.filter(v => v.id !== vendorId));
-            setSelectedVendorId(null);
+          onPress: async () => {
+            try {
+              const resp = await apiFetch(`/finance/vendors/${vendorId}`, { method: 'DELETE' });
+              if (resp.ok || resp.status === 204) {
+                setVendors(prev => prev.filter(v => v.id !== vendorId));
+                setHistoryVendors(prev => prev.filter(v => v.id !== vendorId));
+                setSelectedVendorId(null);
+                return;
+              }
+
+              let detail = '';
+              try { detail = await resp.text(); } catch {}
+              Alert.alert('Delete failed', `Server error: ${resp.status} ${detail}`);
+            } catch (e) {
+              Alert.alert('Delete failed', 'Unable to reach server.');
+            }
           },
         },
       ],
@@ -480,21 +541,34 @@ export default function FinanceScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setVendors(prev => prev.map(vendor => {
-              if (vendor.id !== vendorId) return vendor;
+          onPress: async () => {
+            try {
+              const resp = await apiFetch(`/finance/vendors/${vendorId}/payments/${payment.timestamp}`, { method: 'DELETE' });
+              if (resp.ok || resp.status === 204) {
+                setVendors(prev => prev.map(vendor => {
+                  if (vendor.id !== vendorId) return vendor;
 
-              return {
-                ...vendor,
-                payments: vendor.payments.filter(item => !(
-                  item.timestamp === payment.timestamp
-                  && item.amount === payment.amount
-                  && item.month === payment.month
-                  && item.year === payment.year
-                  && item.paidOn === payment.paidOn
-                )),
-              };
-            }));
+                  return {
+                    ...vendor,
+                    payments: vendor.payments.filter(item => item.timestamp !== payment.timestamp),
+                  };
+                }));
+                setHistoryVendors(prev => prev.map(vendor => {
+                  if (vendor.id !== vendorId) return vendor;
+                  return {
+                    ...vendor,
+                    payments: vendor.payments.filter(item => item.timestamp !== payment.timestamp),
+                  };
+                }));
+                return;
+              }
+
+              let detail = '';
+              try { detail = await resp.text(); } catch {}
+              Alert.alert('Delete failed', `Server error: ${resp.status} ${detail}`);
+            } catch (e) {
+              Alert.alert('Delete failed', 'Unable to reach server.');
+            }
           },
         },
       ],
@@ -546,7 +620,9 @@ export default function FinanceScreen() {
               <View style={styles.bannerFilters}>
                 <Text style={styles.filterInlineLabel}>Month:</Text>
                 <TouchableOpacity style={styles.filterMiniBox} onPress={() => setFilterOpen(true)}>
-                  <Text style={styles.filterMiniValue}>{selectedMonth.slice(0, 3)}</Text>
+                  <Text style={styles.filterMiniValue}>
+                    {selectedMonth === 'All Months' ? 'All' : selectedMonth.slice(0, 3)}
+                  </Text>
                 </TouchableOpacity>
                 <Text style={styles.filterInlineLabel}>Year:</Text>
                 <TouchableOpacity style={[styles.filterMiniBox, styles.filterMiniBoxYear]} onPress={() => setFilterOpen(true)}>
@@ -603,13 +679,16 @@ export default function FinanceScreen() {
 
           <View style={styles.vendorListWrap}>
             {vendors.filter(v => getVendorRemaining(v) > 0).map((vendor, index) => {
+              // Filtered paid amount for the selected period
               const paidInSelectedPeriod = vendor.payments
-                .filter(payment => payment.month === selectedMonth && payment.year === selectedYear)
+                .filter(payment =>
+                  (isAllMonths || payment.month === selectedMonth) &&
+                  payment.year === selectedYear,
+                )
                 .reduce((sum, payment) => sum + payment.amount, 0);
 
-              const latestPayment = vendor.payments
-                .filter(payment => payment.month === selectedMonth && payment.year === selectedYear)
-                .sort((a, b) => b.timestamp - a.timestamp)[0];
+              // Actual latest payment across ALL months/years
+              const actualLatestPayment = getActualLatestPayment(vendor);
 
               return (
                 <TouchableOpacity
@@ -629,7 +708,7 @@ export default function FinanceScreen() {
                     </View>
                     <View style={styles.vendorRow}>
                       <Text style={styles.vendorLastPaid}>
-                        Last Paid: {latestPayment ? latestPayment.paidOn : '--'}
+                        Last Paid: {actualLatestPayment ? actualLatestPayment.paidOn : '--'}
                       </Text>
                       <View style={styles.vendorPendingRow}>
                         <Text style={styles.vendorPending}>Pending {formatCurrency(getVendorRemaining(vendor))}</Text>
@@ -670,6 +749,7 @@ export default function FinanceScreen() {
               <Text style={styles.detailMeta}>Complete Date: {selectedVendor ? getVendorCompletedOn(selectedVendor) : '--'}</Text>
             ) : null}
             <Text style={styles.detailMeta}>Total Paid: {selectedVendor ? formatCurrency(getVendorTotalPaid(selectedVendor)) : '--'}</Text>
+            <Text style={styles.detailMeta}>Total Interest: {selectedVendor ? formatCurrency(getVendorTotalInterest(selectedVendor)) : '--'}</Text>
             <Text style={styles.detailMeta}>Remaining: {selectedVendor ? formatCurrency(getVendorRemaining(selectedVendor)) : '--'}</Text>
 
             <Text style={styles.historyTitle}>Saving History</Text>
@@ -678,21 +758,24 @@ export default function FinanceScreen() {
                 [...selectedVendor.payments]
                   .sort((a, b) => b.timestamp - a.timestamp)
                   .map((payment, index) => (
-                    <View key={`${payment.timestamp}-${index}`} style={styles.historyRow}>
-                      <Text style={styles.historyDate}>{payment.paidOn} ({payment.month} {payment.year})</Text>
-                      <View style={styles.historyActions}>
-                        <Text style={styles.historyAmount}>{formatCurrency(payment.amount)}</Text>
-                        {!selectedVendorIsCompleted ? (
-                          <TouchableOpacity
-                            style={styles.historyDeleteBtn}
-                            onPress={() => selectedVendor && handleDeletePaymentHistory(selectedVendor.id, payment)}
-                            activeOpacity={0.75}
-                          >
-                            <Ionicons name="trash-outline" size={13} color="#FF7B7B" />
-                          </TouchableOpacity>
-                        ) : null}
+                      <View key={`${payment.timestamp}-${index}`} style={styles.historyRow}>
+                        <Text style={styles.historyDate}>{payment.paidOn} ({payment.month} {payment.year})</Text>
+                        <View style={{ alignItems: 'flex-end', marginRight: 8 }}>
+                          <Text style={styles.historyAmount}>{formatCurrency(payment.amount)}</Text>
+                          <Text style={{ color: '#A9B0B8', fontSize: 11 }}>Interest: {formatCurrency(payment.interest ?? 0)}</Text>
+                        </View>
+                        <View style={styles.historyActions}>
+                          {!selectedVendorIsCompleted ? (
+                            <TouchableOpacity
+                              style={styles.historyDeleteBtn}
+                              onPress={() => selectedVendor && handleDeletePaymentHistory(selectedVendor.id, payment)}
+                              activeOpacity={0.75}
+                            >
+                              <Ionicons name="trash-outline" size={13} color="#FF7B7B" />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
                       </View>
-                    </View>
                   ))
               ) : (
                 <Text style={styles.historyEmpty}>No payments recorded yet.</Text>
@@ -732,7 +815,9 @@ export default function FinanceScreen() {
           <Pressable style={styles.filterModal} onPress={() => {}}>
             <Text style={styles.filterTitle}>Update Vendor Payment</Text>
             <Text style={styles.paymentContext}>{activePaymentVendor?.name}</Text>
-            <Text style={styles.paymentSubtext}>Pay for {selectedMonth} {selectedYear}</Text>
+            <Text style={styles.paymentSubtext}>
+              Pay for {isAllMonths ? `${MONTHS[new Date().getMonth() + 1]} ${selectedYear}` : `${selectedMonth} ${selectedYear}`}
+            </Text>
 
             <TextInput
               value={paymentAmountInput}
@@ -741,6 +826,15 @@ export default function FinanceScreen() {
               placeholder="Enter payment amount"
               placeholderTextColor="#6f7984"
               style={styles.amountInput}
+            />
+
+            <TextInput
+              value={paymentInterestInput}
+              onChangeText={setPaymentInterestInput}
+              keyboardType="numeric"
+              placeholder="Interest (optional)"
+              placeholderTextColor="#6f7984"
+              style={[styles.amountInput, { marginTop: 8 }]}
             />
 
             <View style={styles.paymentActions}>
@@ -784,7 +878,9 @@ export default function FinanceScreen() {
                     onPress={() => setSelectedMonth(month)}
                     activeOpacity={0.86}
                   >
-                    <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{month}</Text>
+                    <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                      {month === 'All Months' ? 'All Months' : month}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
@@ -943,7 +1039,7 @@ export default function FinanceScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+export const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: '#07090B',
@@ -1347,12 +1443,13 @@ const styles = StyleSheet.create({
     color: '#AFB6BE',
     fontSize: 12,
     flex: 1,
-    paddingRight: 10,
+    paddingRight: 6,
   },
   historyAmount: {
     color: '#B6FF4E',
     fontSize: 12,
     fontWeight: '700',
+    
   },
   historyActions: {
     flexDirection: 'row',
@@ -1451,12 +1548,12 @@ const styles = StyleSheet.create({
   },
   yearRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 14,
   },
   yearPill: {
-    flex: 1,
-    alignItems: 'center',
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 11,
     borderWidth: 1,
@@ -1524,7 +1621,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    
     borderRadius: 11,
     backgroundColor: '#ACFE3E',
   },

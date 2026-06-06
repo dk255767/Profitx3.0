@@ -32,20 +32,24 @@ const NR        = 50;   // half-width of the notch valley
 const DEPTH     = 40;   // how deep the valley dips (SVG bar-local y)
 const TANGENT   = 10;   // bezier lead-in on each side
 
-const SLOT_W    = W / 4;
-const centerOf  = (i: number) => SLOT_W * i + SLOT_W / 2;
+
 
 const NAV_ITEMS = [
+  { key: 'product', label: 'Product', image: require('../assets/images/product.png') },
   { key: 'data',    label: 'Data',    image: require('../assets/images/note.png') },
   { key: 'home',    label: 'Home',    image: require('../assets/images/home.png') },
   { key: 'finance', label: 'Finance', image: require('../assets/images/money.png') },
+  
   { key: 'saving',  label: 'Saving',  image: require('../assets/images/saveicon.png') },
 ];
 
-const ROUTE_BY_KEY: Record<string, '/(tabs)' | '/(tabs)/data' | '/(tabs)/finance' | '/(tabs)/saving'> = {
+const SLOT_W    = W / NAV_ITEMS.length;
+const centerOf  = (i: number) => SLOT_W * i + SLOT_W / 2;
+const ROUTE_BY_KEY: Record<string, '/(tabs)' | '/(tabs)/data' | '/(tabs)/finance' | '/(tabs)/product' | '/(tabs)/saving'> = {
   data: '/(tabs)/data',
   home: '/(tabs)',
   finance: '/(tabs)/finance',
+  product: '/(tabs)/product',
   saving: '/(tabs)/saving',
 };
 
@@ -53,6 +57,7 @@ const NAV_SPRING = { mass: 1, damping: 18, stiffness: 160 } as const;
 
 const keyFromPathname = (pathname: string) => {
   if (pathname.includes('/saving')) return 'saving';
+  if (pathname.includes('/product')) return 'product';
   if (pathname.includes('/finance')) return 'finance';
   if (pathname.includes('/data')) return 'data';
   return 'home';

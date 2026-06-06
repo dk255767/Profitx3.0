@@ -6,6 +6,7 @@ import {
   createSavingCard,
   listSavingCardsByUser,
   patchSavingCardByUser,
+  deleteSavingCardByUser,
 } from '../db/store';
 import { getAuthUserId } from '../middleware/auth';
 import { SavingCard, PaymentRecord } from '../types';
@@ -30,6 +31,17 @@ const patchSavingCardSchema = z.object({
 });
 
 export const savingRouter = Router();
+
+// Log incoming saving router requests for debugging
+savingRouter.use((req, _res, next) => {
+  try {
+    // eslint-disable-next-line no-console
+    console.log(`savingRouter -> ${req.method} ${req.path} headers:`, Object.keys(req.headers));
+  } catch (e) {
+    // ignore
+  }
+  next();
+});
 
 savingRouter.get('/saving/cards', async (req, res) => {
   try {
@@ -160,5 +172,17 @@ savingRouter.post('/saving/cards/:id/deposits', async (req, res) => {
       message: 'Failed to save deposit',
       detail: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
+});
+
+savingRouter.delete('/saving/cards/:id', async (req, res) => {
+  try {
+    const userId = getAuthUserId(req);
+    const ok = await deleteSavingCardByUser(userId, req.params.id);
+    if (!ok) return res.status(404).json({ message: 'Saving card not found' });
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting saving card:', error);
+    return res.status(500).json({ message: 'Failed to delete saving card', detail: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
