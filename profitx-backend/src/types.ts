@@ -75,6 +75,7 @@ export type IncomeRow = {
   gpay: string;
   malliKadai: string;
   market: string;
+  labour: string;
 };
 
 export type AdditionalRow = {

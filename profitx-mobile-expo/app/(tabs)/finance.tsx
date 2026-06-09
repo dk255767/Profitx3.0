@@ -166,6 +166,8 @@ export default function FinanceScreen() {
   const [newVendorLoanInput, setNewVendorLoanInput] = useState('');
   const [isAddingVendor, setIsAddingVendor] = useState(false);
   const [historyVendors, setHistoryVendors] = useState<FinanceVendor[]>([]);
+  const [isDeletingVendor, setIsDeletingVendor] = useState(false);
+  const [isDeletingPayment, setIsDeletingPayment] = useState(false);
   const [historyStorageKey, setHistoryStorageKey] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const greeting = useMemo(() => {
@@ -198,7 +200,7 @@ export default function FinanceScreen() {
             return;
           }
         }
-      } catch {}
+      } catch { }
 
       setShopName(SHOP_NAME);
     } catch {
@@ -248,7 +250,7 @@ export default function FinanceScreen() {
         if (!Array.isArray(payload)) return;
         setVendors(normalizeHistoryVendors(payload));
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => {
       mounted = false;
@@ -280,7 +282,7 @@ export default function FinanceScreen() {
           setHistoryVendors(normalizeHistoryVendors(parsed));
         }
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => {
         if (mounted) {
           historyHydratedRef.current = true;
@@ -298,9 +300,9 @@ export default function FinanceScreen() {
       .then(() => {
         try {
           DeviceEventEmitter.emit('financeHistoryUpdated');
-        } catch {}
+        } catch { }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [historyVendors, historyStorageKey]);
 
   const activePaymentVendor = useMemo(
@@ -511,6 +513,8 @@ export default function FinanceScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            if (isDeletingVendor) return;
+            setIsDeletingVendor(true);
             try {
               const resp = await apiFetch(`/finance/vendors/${vendorId}`, { method: 'DELETE' });
               if (resp.ok || resp.status === 204) {
@@ -520,11 +524,34 @@ export default function FinanceScreen() {
                 return;
               }
 
+              // Handle 404 specially: offer to remove locally if server says not found
+              if (resp.status === 404) {
+                Alert.alert(
+                  'Not found',
+                  'Item not found on server. Remove locally?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove locally',
+                      style: 'destructive',
+                      onPress: () => {
+                        setVendors(prev => prev.filter(v => v.id !== vendorId));
+                        setHistoryVendors(prev => prev.filter(v => v.id !== vendorId));
+                        setSelectedVendorId(null);
+                      },
+                    },
+                  ],
+                );
+                return;
+              }
+
               let detail = '';
               try { detail = await resp.text(); } catch {}
               Alert.alert('Delete failed', `Server error: ${resp.status} ${detail}`);
             } catch (e) {
-              Alert.alert('Delete failed', 'Unable to reach server.');
+              Alert.alert('Delete failed', 'Network error. Please check your connection and try again.');
+            } finally {
+              setIsDeletingVendor(false);
             }
           },
         },
@@ -542,6 +569,8 @@ export default function FinanceScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            if (isDeletingPayment) return;
+            setIsDeletingPayment(true);
             try {
               const resp = await apiFetch(`/finance/vendors/${vendorId}/payments/${payment.timestamp}`, { method: 'DELETE' });
               if (resp.ok || resp.status === 204) {
@@ -563,11 +592,38 @@ export default function FinanceScreen() {
                 return;
               }
 
+              if (resp.status === 404) {
+                Alert.alert(
+                  'Not found',
+                  'Transaction not found on server. Remove locally?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove locally',
+                      style: 'destructive',
+                      onPress: () => {
+                        setVendors(prev => prev.map(vendor => {
+                          if (vendor.id !== vendorId) return vendor;
+                          return { ...vendor, payments: vendor.payments.filter(item => item.timestamp !== payment.timestamp) };
+                        }));
+                        setHistoryVendors(prev => prev.map(vendor => {
+                          if (vendor.id !== vendorId) return vendor;
+                          return { ...vendor, payments: vendor.payments.filter(item => item.timestamp !== payment.timestamp) };
+                        }));
+                      },
+                    },
+                  ],
+                );
+                return;
+              }
+
               let detail = '';
               try { detail = await resp.text(); } catch {}
               Alert.alert('Delete failed', `Server error: ${resp.status} ${detail}`);
             } catch (e) {
-              Alert.alert('Delete failed', 'Unable to reach server.');
+              Alert.alert('Delete failed', 'Network error. Please check your connection and try again.');
+            } finally {
+              setIsDeletingPayment(false);
             }
           },
         },
@@ -739,8 +795,17 @@ export default function FinanceScreen() {
         onRequestClose={() => setSelectedVendorId(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setSelectedVendorId(null)}>
-          <Pressable style={styles.filterModal} onPress={() => {}}>
-            <Text style={styles.filterTitle}>Vendor Details</Text>
+          <Pressable style={styles.filterModal} onPress={() => { }}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.filterTitle}>Vendor Details</Text>
+
+              <TouchableOpacity
+                style={styles.closeIconBtn}
+                onPress={() => setSelectedVendorId(null)}
+              >
+                <Ionicons name="close" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
 
             <Text style={styles.detailName}>{selectedVendor?.name}</Text>
             <Text style={styles.detailMeta}>Initial Date: {selectedVendor?.loanDate}</Text>
@@ -758,24 +823,22 @@ export default function FinanceScreen() {
                 [...selectedVendor.payments]
                   .sort((a, b) => b.timestamp - a.timestamp)
                   .map((payment, index) => (
-                      <View key={`${payment.timestamp}-${index}`} style={styles.historyRow}>
-                        <Text style={styles.historyDate}>{payment.paidOn} ({payment.month} {payment.year})</Text>
-                        <View style={{ alignItems: 'flex-end', marginRight: 8 }}>
-                          <Text style={styles.historyAmount}>{formatCurrency(payment.amount)}</Text>
-                          <Text style={{ color: '#A9B0B8', fontSize: 11 }}>Interest: {formatCurrency(payment.interest ?? 0)}</Text>
-                        </View>
-                        <View style={styles.historyActions}>
-                          {!selectedVendorIsCompleted ? (
-                            <TouchableOpacity
-                              style={styles.historyDeleteBtn}
-                              onPress={() => selectedVendor && handleDeletePaymentHistory(selectedVendor.id, payment)}
-                              activeOpacity={0.75}
-                            >
-                              <Ionicons name="trash-outline" size={13} color="#FF7B7B" />
-                            </TouchableOpacity>
-                          ) : null}
-                        </View>
+                    <View key={`${payment.timestamp}-${index}`} style={styles.historyRow}>
+                      <Text style={styles.historyDate}>{payment.paidOn} ({payment.month} {payment.year})</Text>
+                      <View style={{ alignItems: 'flex-end', marginRight: 8 }}>
+                        <Text style={styles.historyAmount}>{formatCurrency(payment.amount)}</Text>
+                        <Text style={{ color: '#A9B0B8', fontSize: 11 }}>Interest: {formatCurrency(payment.interest ?? 0)}</Text>
                       </View>
+                      <View style={styles.historyActions}>
+                        <TouchableOpacity
+                          style={styles.historyDeleteBtn}
+                          onPress={() => selectedVendor && handleDeletePaymentHistory(selectedVendor.id, payment)}
+                          activeOpacity={0.75}
+                        >
+                          <Ionicons name="trash-outline" size={13} color="#FF7B7B" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   ))
               ) : (
                 <Text style={styles.historyEmpty}>No payments recorded yet.</Text>
@@ -783,24 +846,21 @@ export default function FinanceScreen() {
             </ScrollView>
 
             <View style={styles.detailFooter}>
-              <View style={styles.detailFooterLeft}>
-                {!selectedVendorIsCompleted ? (
-                  <TouchableOpacity style={styles.completeBtn} onPress={() => selectedVendor && handleCompleteVendor(selectedVendor.id)} activeOpacity={0.8}>
-                    <Ionicons name="checkmark-circle-outline" size={14} color="#0B1204" />
-                    <Text style={styles.completeBtnText}>Complete</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {!selectedVendorIsCompleted ? (
-                  <TouchableOpacity style={styles.deleteVendorBtn} onPress={() => selectedVendor && handleDeleteVendor(selectedVendor.id)} activeOpacity={0.8}>
-                    <Ionicons name="trash-outline" size={14} color="#FF7B7B" />
-                    <Text style={styles.deleteVendorBtnText}>Delete Vendor</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-              <TouchableOpacity style={styles.applyBtn} onPress={() => setSelectedVendorId(null)}>
-                <Text style={styles.applyBtnText}>Close</Text>
-              </TouchableOpacity>
-            </View>
+  <View style={styles.detailFooterRight}>
+    {selectedVendor && getVendorRemaining(selectedVendor) > 0 ? (
+      <TouchableOpacity style={styles.completeBtn} onPress={() => selectedVendor && handleCompleteVendor(selectedVendor.id)} activeOpacity={0.8}>
+        <Ionicons name="checkmark-circle-outline" size={14} color="#0B1204" />
+        <Text style={styles.completeBtnText}>Complete</Text>
+      </TouchableOpacity>
+    ) : null}
+    {selectedVendor ? (
+      <TouchableOpacity style={styles.deleteVendorBtn} onPress={() => selectedVendor && handleDeleteVendor(selectedVendor.id)} activeOpacity={0.8}>
+        <Ionicons name="trash-outline" size={14} color="#ffffff" />
+        <Text style={styles.deleteVendorBtnText}>Vendor</Text>
+      </TouchableOpacity>
+    ) : null}
+  </View>
+</View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -812,7 +872,7 @@ export default function FinanceScreen() {
         onRequestClose={() => setPaymentVendorId(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setPaymentVendorId(null)}>
-          <Pressable style={styles.filterModal} onPress={() => {}}>
+          <Pressable style={styles.filterModal} onPress={() => { }}>
             <Text style={styles.filterTitle}>Update Vendor Payment</Text>
             <Text style={styles.paymentContext}>{activePaymentVendor?.name}</Text>
             <Text style={styles.paymentSubtext}>
@@ -864,7 +924,7 @@ export default function FinanceScreen() {
         onRequestClose={() => setFilterOpen(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setFilterOpen(false)}>
-          <Pressable style={styles.filterModal} onPress={() => {}}>
+          <Pressable style={styles.filterModal} onPress={() => { }}>
             <Text style={styles.filterTitle}>Filter Finance Data</Text>
 
             <Text style={styles.filterGroupLabel}>Month</Text>
@@ -928,7 +988,7 @@ export default function FinanceScreen() {
             if (!isAddingVendor) setAddVendorOpen(false);
           }}
         >
-          <Pressable style={styles.filterModal} onPress={() => {}}>
+          <Pressable style={styles.filterModal} onPress={() => { }}>
             <Text style={styles.filterTitle}>Add New Vendor</Text>
 
             <TextInput
@@ -984,9 +1044,9 @@ export default function FinanceScreen() {
         onRequestClose={() => setHistoryOpen(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setHistoryOpen(false)}>
-          <Pressable style={styles.filterModal} onPress={() => {}}>
+          <Pressable style={styles.filterModal} onPress={() => { }}>
             <View style={styles.historyModalHeader}>
-              <Ionicons name="time-outline" size={18} color="#ACFE3E" style={{ marginRight: 4,  position: 'relative', top: -5 }} />
+              <Ionicons name="time-outline" size={18} color="#ACFE3E" style={{ marginRight: 4, position: 'relative', top: -5 }} />
               <Text style={styles.filterTitle}>Completed Payments</Text>
             </View>
 
@@ -1093,7 +1153,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginBottom: 20,
-    marginTop:8,
+    marginTop: 8,
     backgroundColor: '#020405',
     shadowColor: '#000000',
     shadowOpacity: 0.35,
@@ -1449,7 +1509,7 @@ export const styles = StyleSheet.create({
     color: '#B6FF4E',
     fontSize: 12,
     fontWeight: '700',
-    
+
   },
   historyActions: {
     flexDirection: 'row',
@@ -1591,12 +1651,11 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 11,
-    borderWidth: 1,
-    borderColor: 'rgba(255,123,123,0.35)',
-    backgroundColor: 'rgba(255,123,123,0.1)',
+    
+    backgroundColor: 'rgb(0, 0, 0)',
   },
   deleteVendorBtnText: {
-    color: '#FF7B7B',
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1605,8 +1664,8 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
     paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 4,
+    borderRadius: 11,
     borderWidth: 1,
     borderColor: 'rgba(10, 80, 0, 0.15)',
     backgroundColor: '#ACFE3E',
@@ -1615,7 +1674,7 @@ export const styles = StyleSheet.create({
   completeBtnText: {
     color: '#0B1204',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   applyBtn: {
     alignSelf: 'flex-end',
@@ -1627,7 +1686,7 @@ export const styles = StyleSheet.create({
   applyBtnText: {
     color: '#0B1204',
     fontSize: 13,
-    marginTop:0,
+    marginTop: 0,
     paddingVertical: 4,
     fontWeight: '700',
   },
@@ -1636,4 +1695,26 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  modalHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 12,
+},
+
+closeIconBtn: {
+  width: 32,
+  height: 32,
+  borderRadius: 16,
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: 'rgba(255,255,255,0.08)',
+},
+detailFooterRight: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  gap: 4,
+  width: '100%',
+},
 });

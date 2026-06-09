@@ -9,6 +9,7 @@ export type IncomeRow = {
   gpay: string;
   malliKadai: string;
   market: string;
+  labour: string;
 };
 
 export type AdditionalRow = {
@@ -47,6 +48,7 @@ function normalizeSnapshot(value: unknown): FinanceSnapshot {
         gpay: String((row as Partial<IncomeRow>).gpay ?? ''),
         malliKadai: String((row as Partial<IncomeRow>).malliKadai ?? ''),
         market: String((row as Partial<IncomeRow>).market ?? ''),
+        labour: String((row as Partial<IncomeRow>).labour ?? ''),
       })),
     addRows: addRows
       .filter((row): row is AdditionalRow => !!row && typeof row === 'object')

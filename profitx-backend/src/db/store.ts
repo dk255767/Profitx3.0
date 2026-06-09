@@ -134,6 +134,7 @@ function normalizeFinanceSnapshot(value: unknown): FinanceSnapshot {
         gpay: String((row as { gpay?: unknown }).gpay ?? ''),
         malliKadai: String((row as { malliKadai?: unknown }).malliKadai ?? ''),
         market: String((row as { market?: unknown }).market ?? ''),
+        labour: String((row as { labour?: unknown }).labour ?? ''),
       })),
     addRows: addRows
       .filter((row): row is FinanceSnapshot['addRows'][number] => !!row && typeof row === 'object')

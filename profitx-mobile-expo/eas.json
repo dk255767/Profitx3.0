@@ -4,6 +4,8 @@
   },
   "build": {
     "production": {
+      "developmentClient": false,
+      "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://profitx3-0.onrender.com/api",
         "EXPO_PUBLIC_API_URL": "https://profitx3-0.onrender.com",

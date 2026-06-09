@@ -2,7 +2,7 @@
  * DataScreen â€“ Finance Income Entry & History
  * Dark fintech theme Â· Neon green Â· Glassmorphism
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   SafeAreaView,
@@ -21,6 +21,7 @@ import {
   ImageBackground,
   Image,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { LinearGradient as _LG } from 'expo-linear-gradient';
@@ -42,7 +43,8 @@ import { getUserScopedKey, STORAGE_KEYS } from '../../constants/app-flow';
 
 const LinearGradient = _LG as React.ComponentType<any>;
 const { width: W } = Dimensions.get('window');
-const INCOME_TABLE_MIN_WIDTH = 568;
+
+const INCOME_TABLE_MIN_WIDTH = 628;
 const WEEKLY_TABLE_MIN_WIDTH = 484;
 const TABLE_CARD_WIDTH = W * 0.9;
 const TABLE_GAP = 18;
@@ -50,21 +52,21 @@ const OWNER_NAME = 'Chief';
 const SHOP_NAME = 'Your Shop Name';
 
 /* â”€â”€â”€ Design tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-const NEON        = '#00FF88';
-const NEON_DARK   = '#50da2e';
-const BG_TOP      = '#000D1A';
-const BG_MID      = '#001428';
-const BG_BOT      = '#000508';
-const CARD_BG     = 'rgba(0,28,56,0.85)';
+const NEON = '#00FF88';
+const NEON_DARK = '#50da2e';
+const BG_TOP = '#000D1A';
+const BG_MID = '#001428';
+const BG_BOT = '#000508';
+const CARD_BG = 'rgba(0,28,56,0.85)';
 const CARD_BORDER = 'rgba(0,255,136,0.35)';
-const INPUT_BG    = 'rgba(0,10,28,0.90)';
-const INPUT_BDR   = 'rgba(255, 255, 255, 0.35)';
-const TEXT        = '#FFFFFF';
-const MUTED       = 'rgba(255,255,255,0.38)';
-const RED         = '#FF3B3B';
-const ROW_EVEN    = 'rgba(255,255,255,0.0)';
-const ROW_ODD     = 'rgba(255,255,255,0.04)';
-const DIVIDER     = 'rgba(255,255,255,0.07)';
+const INPUT_BG = 'rgba(0,10,28,0.90)';
+const INPUT_BDR = 'rgba(255, 255, 255, 0.35)';
+const TEXT = '#FFFFFF';
+const MUTED = 'rgba(255,255,255,0.38)';
+const RED = '#FF3B3B';
+const ROW_EVEN = 'rgba(255,255,255,0.0)';
+const ROW_ODD = 'rgba(255,255,255,0.04)';
+const DIVIDER = 'rgba(255,255,255,0.07)';
 
 const numVal = (v: string) => parseFloat(v) || 0;
 const numSum = (vals: string[]) => vals.reduce((s, v) => s + numVal(v), 0);
@@ -103,7 +105,7 @@ const DatePickerField = ({ label, value, onChange }: DatePickerFieldProps) => {
       {Platform.OS === 'ios' && (
         <Modal transparent animationType="fade" visible={show} onRequestClose={() => setShow(false)}>
           <TouchableOpacity style={s.pickerOverlay} activeOpacity={1} onPress={() => setShow(false)}>
-            <TouchableOpacity activeOpacity={1} style={s.pickerCard} onPress={() => {}}>
+            <TouchableOpacity activeOpacity={1} style={s.pickerCard} onPress={() => { }}>
               <View style={s.pickerHeader}>
                 <TouchableOpacity onPress={() => setShow(false)}>
                   <Text style={s.pickerCancel}>Cancel</Text>
@@ -162,15 +164,15 @@ export default function DataScreen() {
   const [shopName, setShopName] = useState(SHOP_NAME);
 
   const [incomeForm, setIncomeForm] = useState<Omit<IncomeRow, 'id'>>({
-    date: '', cash: '', gpay: '', malliKadai: '', market: '',
+    date: '', cash: '', gpay: '', malliKadai: '', market: '', labour: '',
   });
   const [addForm, setAddForm] = useState<Omit<AdditionalRow, 'id'>>({
     date: '', egg: '', piece: '', potato: '', gas: '', fuel: '',
   });
   const [addExpanded, setAddExpanded] = useState(false);
-  const [drawerOpen, setDrawerOpen]   = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [incomeRows, setIncomeRows] = useState<IncomeRow[]>([]);
-  const [addRows, setAddRows]       = useState<AdditionalRow[]>([]);
+  const [addRows, setAddRows] = useState<AdditionalRow[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const didHydrateRef = useRef(false);
@@ -197,13 +199,43 @@ export default function DataScreen() {
             return;
           }
         }
-      } catch {}
+      } catch { }
 
       setShopName(SHOP_NAME);
     } catch {
       setShopName(SHOP_NAME);
     }
   }, []);
+  const [filterMonth, setFilterMonth] = useState<string>('All');
+  const [filterYear, setFilterYear] = useState<string>(String(new Date().getFullYear()));
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+
+  const FILTER_MONTHS = ['All', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const FILTER_YEARS = Array.from({ length: 7 }, (_, i) => String(2024 + i));
+  const filteredIncomeRows = useMemo(() => {
+    return incomeRows.filter(r => {
+      if (!r.date) return true;
+      const parts = r.date.split('/'); // dd/mm/yyyy
+      const rowMonth = parts[1] ? FILTER_MONTHS[Number(parts[1])] : '';
+      const rowYear = parts[2] ?? '';
+      const monthOk = filterMonth === 'All' || rowMonth === filterMonth;
+      const yearOk = rowYear === filterYear;
+      return monthOk && yearOk;
+    });
+  }, [incomeRows, filterMonth, filterYear]);
+
+  const filteredAddRows = useMemo(() => {
+    return addRows.filter(r => {
+      if (!r.date) return true;
+      const parts = r.date.split('/');
+      const rowMonth = parts[1] ? FILTER_MONTHS[Number(parts[1])] : '';
+      const rowYear = parts[2] ?? '';
+      const monthOk = filterMonth === 'All' || rowMonth === filterMonth;
+      const yearOk = rowYear === filterYear;
+      return monthOk && yearOk;
+    });
+  }, [addRows, filterMonth, filterYear]);
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -260,7 +292,7 @@ export default function DataScreen() {
     setIsUploading(true);
     try {
       setIncomeRows(prev => [{ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...incomeForm }, ...prev]);
-      setIncomeForm({ date: '', cash: '', gpay: '', malliKadai: '', market: '' });
+      setIncomeForm({ date: '', cash: '', gpay: '', malliKadai: '', market: '', labour: '' });
     } finally {
       setIsUploading(false);
     }
@@ -285,34 +317,33 @@ export default function DataScreen() {
     ]);
 
   /* â”€â”€ Totals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  const totalCash       = incomeRows.reduce((s, r) => s + numVal(r.cash), 0);
-  const totalGPay       = incomeRows.reduce((s, r) => s + numVal(r.gpay), 0);
-  const totalMalliKadai = incomeRows.reduce((s, r) => s + numVal(r.malliKadai), 0);
-  const totalMarket     = incomeRows.reduce((s, r) => s + numVal(r.market), 0);
+  const totalCash = filteredIncomeRows.reduce((s, r) => s + numVal(r.cash), 0);
+  const totalGPay = filteredIncomeRows.reduce((s, r) => s + numVal(r.gpay), 0);
+  const totalMalliKadai = filteredIncomeRows.reduce((s, r) => s + numVal(r.malliKadai), 0);
+  const totalMarket = filteredIncomeRows.reduce((s, r) => s + numVal(r.market), 0);
 
-  const addTotals = addRows.reduce(
+  const addTotals = filteredAddRows.reduce(
     (a, r) => ({
-      egg:    a.egg    + numVal(r.egg),
-      piece:  a.piece  + numVal(r.piece),
+      egg: a.egg + numVal(r.egg),
+      piece: a.piece + numVal(r.piece),
       potato: a.potato + numVal(r.potato),
-      gas:    a.gas    + numVal(r.gas),
-      fuel:   a.fuel   + numVal(r.fuel),
+      gas: a.gas + numVal(r.gas),
+      fuel: a.fuel + numVal(r.fuel),
     }),
     { egg: 0, piece: 0, potato: 0, gas: 0, fuel: 0 },
   );
   const addGrandTotal = addTotals.egg + addTotals.piece + addTotals.potato + addTotals.gas + addTotals.fuel;
-  const addByDate = addRows.reduce<Record<string, number>>((acc, r) => {
+  const addByDate = filteredAddRows.reduce<Record<string, number>>((acc, r) => {
     const total = numVal(r.egg) + numVal(r.piece) + numVal(r.potato) + numVal(r.gas) + numVal(r.fuel);
     acc[r.date] = (acc[r.date] || 0) + total;
     return acc;
   }, {});
   const incomeOnlyTotal = totalCash + totalGPay;
-  const investTotal = incomeRows.reduce(
+  const investTotal = filteredIncomeRows.reduce(
     (s, r) => s + numVal(r.market) + numVal(r.malliKadai) + (addByDate[r.date] || 0),
     0,
   );
   const incomeProfitTotal = incomeOnlyTotal - investTotal;
-
   /* â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   return (
     <LinearGradient colors={['#2c3e50', '#0C1114']} locations={[0, 0.30]} start={[0, 0]} end={[0, 1]} style={s.root}>
@@ -349,11 +380,12 @@ export default function DataScreen() {
                 <Text style={s.enterAmountLabel}>Enter Amount:</Text>
 
                 <DatePickerField label="Date" value={incomeForm.date} onChange={v => setIncomeForm(f => ({ ...f, date: v }))} />
-                <LabeledInput label="Cash"         value={incomeForm.cash}        onChangeText={t => setIncomeForm(f => ({ ...f, cash: t }))}        keyboardType="decimal-pad" />
-                <LabeledInput label="GPay"         value={incomeForm.gpay}        onChangeText={t => setIncomeForm(f => ({ ...f, gpay: t }))}        keyboardType="decimal-pad" />
-                <LabeledInput label="Malli Kadia"  value={incomeForm.malliKadai} onChangeText={t => setIncomeForm(f => ({ ...f, malliKadai: t }))} keyboardType="decimal-pad" />
-                <LabeledInput label="Market(Amha)" value={incomeForm.market}      onChangeText={t => setIncomeForm(f => ({ ...f, market: t }))}      keyboardType="decimal-pad" />
-
+                <LabeledInput label="Cash" value={incomeForm.cash} onChangeText={t => setIncomeForm(f => ({ ...f, cash: t }))} keyboardType="decimal-pad" />
+                <LabeledInput label="GPay" value={incomeForm.gpay} onChangeText={t => setIncomeForm(f => ({ ...f, gpay: t }))} keyboardType="decimal-pad" />
+                <LabeledInput label="Malli Kadia" value={incomeForm.malliKadai} onChangeText={t => setIncomeForm(f => ({ ...f, malliKadai: t }))} keyboardType="decimal-pad" />
+                <LabeledInput label="Market(Kathir)" value={incomeForm.market} onChangeText={t => setIncomeForm(f => ({ ...f, market: t }))} keyboardType="decimal-pad" />
+                {/* ADD THIS LINE BELOW */}
+                <LabeledInput label="Labour" value={incomeForm.labour ?? ''} onChangeText={t => setIncomeForm(f => ({ ...f, labour: t }))} keyboardType="decimal-pad" />
                 <TouchableOpacity onPress={handleUpload} activeOpacity={0.82} style={{ marginTop: 12 }} disabled={isUploading}>
                   <LinearGradient
                     colors={['#3F8105', '#ACFE3E']}
@@ -410,11 +442,11 @@ export default function DataScreen() {
               >
                 <View style={s.cardContent}>
                   <DatePickerField label="Date" value={addForm.date} onChange={v => setAddForm(f => ({ ...f, date: v }))} />
-                  <LabeledInput label="Egg"    value={addForm.egg}    onChangeText={t => setAddForm(f => ({ ...f, egg: t }))}    keyboardType="decimal-pad" />
-                  <LabeledInput label="Piece"  value={addForm.piece}  onChangeText={t => setAddForm(f => ({ ...f, piece: t }))}  keyboardType="decimal-pad" />
+                  <LabeledInput label="Egg" value={addForm.egg} onChangeText={t => setAddForm(f => ({ ...f, egg: t }))} keyboardType="decimal-pad" />
+                  <LabeledInput label="Piece" value={addForm.piece} onChangeText={t => setAddForm(f => ({ ...f, piece: t }))} keyboardType="decimal-pad" />
                   <LabeledInput label="Potato" value={addForm.potato} onChangeText={t => setAddForm(f => ({ ...f, potato: t }))} keyboardType="decimal-pad" />
-                  <LabeledInput label="Gas"    value={addForm.gas}    onChangeText={t => setAddForm(f => ({ ...f, gas: t }))}    keyboardType="decimal-pad" />
-                  <LabeledInput label="Fuel"   value={addForm.fuel}   onChangeText={t => setAddForm(f => ({ ...f, fuel: t }))}   keyboardType="decimal-pad" />
+                  <LabeledInput label="Gas" value={addForm.gas} onChangeText={t => setAddForm(f => ({ ...f, gas: t }))} keyboardType="decimal-pad" />
+                  <LabeledInput label="Fuel" value={addForm.fuel} onChangeText={t => setAddForm(f => ({ ...f, fuel: t }))} keyboardType="decimal-pad" />
                   <TouchableOpacity onPress={handleAddEntry} activeOpacity={0.82} style={{ marginTop: 10 }} disabled={isAdding}>
                     <LinearGradient
                       colors={['#3F8105', '#ACFE3E']}
@@ -434,6 +466,7 @@ export default function DataScreen() {
               </ImageBackground>
             </LinearGradient>
           )}
+          {/* ── Filter Bar ───────────────────────────────────────────────────── */}
 
           {/* ── Parallel Tables (horizontal container) ───────────────────── */}
           <ScrollView
@@ -445,7 +478,19 @@ export default function DataScreen() {
             snapToInterval={TABLE_CARD_WIDTH + TABLE_GAP}
             contentContainerStyle={s.tablesRow}>
             <View style={s.tableHalf}>
-              <Text style={s.sectionLabel}>Income History</Text>
+              <View style={s.sectionLabelRow}>
+                <Text style={s.sectionLabel}>Income History</Text>
+                <TouchableOpacity
+                  style={s.filterInlineBtn}
+                  activeOpacity={0.8}
+                  onPress={() => setFilterModalOpen(true)}
+                >
+                  <Ionicons name="filter" size={13} color="#ACFE3E" style={{ marginRight: 4 }} />
+                  <Text style={s.filterInlineBtnText}>
+                    {filterMonth === 'All' ? `All · ${filterYear}` : `${filterMonth} · ${filterYear}`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <View style={s.tableWrap}>
                 <ScrollView
                   horizontal
@@ -455,29 +500,30 @@ export default function DataScreen() {
                   <View>
                     {/* Header */}
                     <View style={s.thRow}>
-                      {['Date','Cash','GPay','Malli Kadai','Market','Income','Invest','Profit',''].map((h, i) => (
-                        <Text key={i} style={[s.th, { width: [72, 60, 60, 80, 64, 70, 70, 64, 36][i] }]}>{h}</Text>
+                      {['Date', 'Cash', 'GPay', 'Malli Kadai', 'Market', 'Labour', 'Income', 'Invest', 'Profit', ''].map((h, i) => (
+                        <Text key={i} style={[s.th, { width: [72, 60, 60, 80, 64, 60, 70, 70, 64, 36][i] }]}>{h}</Text>
                       ))}
                     </View>
                     {/* Rows */}
-                    {incomeRows.length === 0 ? (
+                    {filteredIncomeRows.length === 0 ? (
                       <View style={s.emptyRow}>
                         <Text style={s.emptyText}>No records yet</Text>
                       </View>
                     ) : (
-                      incomeRows.map((r, idx) => {
+                      filteredIncomeRows.map((r, idx) => {
                         const rowIncome = numVal(r.cash) + numVal(r.gpay);
                         const rowInvest = numVal(r.market) + numVal(r.malliKadai) + (addByDate[r.date] || 0);
                         const rowProfit = rowIncome - rowInvest;
                         return (
                           <View key={r.id} style={[s.tdRow, { backgroundColor: idx % 2 === 0 ? ROW_EVEN : ROW_ODD }]}>
-                            <Text style={[s.td,       { width: 72 }]}>{r.date}</Text>
-                            <Text style={[s.td,       { width: 60 }]}>{r.cash       || '0'}</Text>
-                            <Text style={[s.td,       { width: 60 }]}>{r.gpay       || '0'}</Text>
-                            <Text style={[s.td,       { width: 80 }]}>{r.malliKadai || '0'}</Text>
-                            <Text style={[s.td,       { width: 64 }]}>{r.market     || '0'}</Text>
-                            <Text style={[s.td,       { width: 70 }]}>{rowIncome.toFixed(0)}</Text>
-                            <Text style={[s.td,       { width: 70 }]}>{rowInvest.toFixed(0)}</Text>
+                            <Text style={[s.td, { width: 72 }]}>{r.date}</Text>
+                            <Text style={[s.td, { width: 60 }]}>{r.cash || '0'}</Text>
+                            <Text style={[s.td, { width: 60 }]}>{r.gpay || '0'}</Text>
+                            <Text style={[s.td, { width: 80 }]}>{r.malliKadai || '0'}</Text>
+                            <Text style={[s.td, { width: 64 }]}>{r.market || '0'}</Text>
+                            <Text style={[s.td, { width: 60 }]}>{r.labour || '0'}</Text>
+                            <Text style={[s.td, { width: 70 }]}>{rowIncome.toFixed(0)}</Text>
+                            <Text style={[s.td, { width: 70 }]}>{rowInvest.toFixed(0)}</Text>
                             <Text style={[s.tdProfit, { width: 64 }]}>{rowProfit.toFixed(0)}</Text>
                             <TouchableOpacity
                               style={s.deleteBtn}
@@ -490,15 +536,16 @@ export default function DataScreen() {
                       })
                     )}
                     {/* Column Totals */}
-                    {incomeRows.length > 0 && (
+                    {filteredIncomeRows.length > 0 && (
                       <View style={s.totalRow}>
-                        <Text style={[s.totalCell,       { width: 72 }]}>Total</Text>
-                        <Text style={[s.totalCell,       { width: 60 }]}>{totalCash.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 60 }]}>{totalGPay.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 80 }]}>{totalMalliKadai.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 64 }]}>{totalMarket.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 70 }]}>{incomeOnlyTotal.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 70 }]}>{investTotal.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 72 }]}>Total</Text>
+                        <Text style={[s.totalCell, { width: 60 }]}>{totalCash.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 60 }]}>{totalGPay.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 80 }]}>{totalMalliKadai.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 64 }]}>{totalMarket.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 60 }]}>{filteredIncomeRows.reduce((s, r) => s + numVal(r.labour ?? ''), 0).toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 70 }]}>{incomeOnlyTotal.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 70 }]}>{investTotal.toFixed(0)}</Text>
                         <Text style={[s.totalCellProfit, { width: 64 }]}>{incomeProfitTotal.toFixed(0)}</Text>
                         <View style={{ width: 36 }} />
                       </View>
@@ -519,26 +566,26 @@ export default function DataScreen() {
                   <View>
                     {/* Header */}
                     <View style={s.thRow}>
-                      {['Date','Egg','Piece','Potato','Gas','Fuel','Total',''].map((h, i) => (
+                      {['Date', 'Egg', 'Piece', 'Potato', 'Gas', 'Fuel', 'Total', ''].map((h, i) => (
                         <Text key={i} style={[s.th, { width: [72, 56, 60, 64, 56, 56, 64, 36][i] }]}>{h}</Text>
                       ))}
                     </View>
                     {/* Rows */}
-                    {addRows.length === 0 ? (
+                    {filteredAddRows.length === 0 ? (
                       <View style={s.emptyRow}>
                         <Text style={s.emptyText}>No records yet</Text>
                       </View>
                     ) : (
-                      addRows.map((r, idx) => {
+                      filteredAddRows.map((r, idx) => {
                         const rowTotal = numSum([r.egg, r.piece, r.potato, r.gas, r.fuel]);
                         return (
                           <View key={r.id} style={[s.tdRow, { backgroundColor: idx % 2 === 0 ? ROW_EVEN : ROW_ODD }]}>
-                            <Text style={[s.td,       { width: 72 }]}>{r.date}</Text>
-                            <Text style={[s.td,       { width: 56 }]}>{r.egg    || '0'}</Text>
-                            <Text style={[s.td,       { width: 60 }]}>{r.piece  || '0'}</Text>
-                            <Text style={[s.td,       { width: 64 }]}>{r.potato || '0'}</Text>
-                            <Text style={[s.td,       { width: 56 }]}>{r.gas    || '0'}</Text>
-                            <Text style={[s.td,       { width: 56 }]}>{r.fuel   || '0'}</Text>
+                            <Text style={[s.td, { width: 72 }]}>{r.date}</Text>
+                            <Text style={[s.td, { width: 56 }]}>{r.egg || '0'}</Text>
+                            <Text style={[s.td, { width: 60 }]}>{r.piece || '0'}</Text>
+                            <Text style={[s.td, { width: 64 }]}>{r.potato || '0'}</Text>
+                            <Text style={[s.td, { width: 56 }]}>{r.gas || '0'}</Text>
+                            <Text style={[s.td, { width: 56 }]}>{r.fuel || '0'}</Text>
                             <Text style={[s.tdProfit, { width: 64 }]}>{rowTotal.toFixed(0)}</Text>
                             <TouchableOpacity
                               style={s.deleteBtn}
@@ -551,14 +598,14 @@ export default function DataScreen() {
                       })
                     )}
                     {/* Column Totals */}
-                    {addRows.length > 0 && (
+                    {filteredAddRows.length > 0 && (
                       <View style={s.totalRow}>
-                        <Text style={[s.totalCell,       { width: 72 }]}>Total</Text>
-                        <Text style={[s.totalCell,       { width: 56 }]}>{addTotals.egg.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 60 }]}>{addTotals.piece.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 64 }]}>{addTotals.potato.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 56 }]}>{addTotals.gas.toFixed(0)}</Text>
-                        <Text style={[s.totalCell,       { width: 56 }]}>{addTotals.fuel.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 72 }]}>Total</Text>
+                        <Text style={[s.totalCell, { width: 56 }]}>{addTotals.egg.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 60 }]}>{addTotals.piece.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 64 }]}>{addTotals.potato.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 56 }]}>{addTotals.gas.toFixed(0)}</Text>
+                        <Text style={[s.totalCell, { width: 56 }]}>{addTotals.fuel.toFixed(0)}</Text>
                         <Text style={[s.totalCellProfit, { width: 64 }]}>{addGrandTotal.toFixed(0)}</Text>
                         <View style={{ width: 36 }} />
                       </View>
@@ -571,7 +618,54 @@ export default function DataScreen() {
 
           <View style={{ height: 120 }} />
         </ScrollView>
+        <Modal
+          transparent
+          visible={filterModalOpen}
+          animationType="fade"
+          onRequestClose={() => setFilterModalOpen(false)}
+        >
+          <Pressable style={s.filterOverlay} onPress={() => setFilterModalOpen(false)}>
+            <Pressable style={s.filterModalCard} onPress={() => { }}>
+              <Text style={s.filterModalTitle}>Filter Tables</Text>
 
+              <Text style={s.filterGroupLabel}>Month</Text>
+              <View style={s.filterChipsWrap}>
+                {FILTER_MONTHS.map(m => (
+                  <TouchableOpacity
+                    key={m}
+                    style={[s.filterChip, filterMonth === m && s.filterChipActive]}
+                    onPress={() => setFilterMonth(m)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[s.filterChipText, filterMonth === m && s.filterChipTextActive]}>{m}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={s.filterGroupLabel}>Year</Text>
+              <View style={s.filterChipsWrap}>
+                {FILTER_YEARS.map(y => (
+                  <TouchableOpacity
+                    key={y}
+                    style={[s.filterChip, filterYear === y && s.filterChipActive]}
+                    onPress={() => setFilterYear(y)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[s.filterChipText, filterYear === y && s.filterChipTextActive]}>{y}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={s.filterApplyBtn}
+                onPress={() => setFilterModalOpen(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={s.filterApplyBtnText}>Apply</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <BottomNavBar />
         <ProfileDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
@@ -638,7 +732,127 @@ const s = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 4,
   },
-
+  filterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0,10,28,0.70)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(172,254,62,0.25)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+  filterBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterBarLabel: {
+    color: '#ACFE3E',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterBarBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(172,254,62,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(172,254,62,0.4)',
+  },
+  filterBarBtnText: {
+    color: '#D4FF9A',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  filterOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.60)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  filterModalCard: {
+    backgroundColor: '#12171D',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(172,254,62,0.25)',
+  },
+  filterModalTitle: {
+    color: '#F4F7FB',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 14,
+  },
+  filterGroupLabel: {
+    color: '#C7CDD4',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  filterChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  filterChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  filterChipActive: {
+    borderColor: 'rgba(172,254,62,0.8)',
+    backgroundColor: 'rgba(172,254,62,0.16)',
+  },
+  filterChipText: {
+    color: '#A9B0B8',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  filterChipTextActive: {
+    color: '#D4FF9A',
+  },
+  filterApplyBtn: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#ACFE3E',
+    marginTop: 4,
+  },
+  filterApplyBtnText: {
+    color: '#0B1204',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    marginBottom: 10,
+    marginLeft: 2,
+  },
+  filterInlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(172,254,62,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(172,254,62,0.35)',
+  },
+  filterInlineBtnText: {
+    color: '#ACFE3E',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   /* â”€â”€ Income entry card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   /* ── Income entry card ──────────────────────────────────────────────────── */
   incomeCardBorder: {
@@ -646,7 +860,7 @@ const s = StyleSheet.create({
     alignSelf: 'center',
     borderRadius: 18,
     padding: 1.5,
-    marginTop:8,
+    marginTop: 8,
     marginBottom: 10,
     shadowColor: '#49BA20',
     shadowOffset: { width: 0, height: 0 },

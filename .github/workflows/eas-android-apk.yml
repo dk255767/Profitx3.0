@@ -1,0 +1,57 @@
+name: EAS Android APK Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies and EAS CLI
+        run: |
+          cd profitx-mobile-expo
+          npm ci --prefer-offline --no-audit --progress=false
+          npm install -g eas-cli
+
+      - name: Login to Expo (using EXPO_TOKEN secret)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          echo "Logging in to EAS"
+          eas login --token $EXPO_TOKEN
+
+      - name: Trigger EAS build (produce APK) and capture ID
+        id: build
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          cd profitx-mobile-expo
+          # Trigger build and capture JSON output
+          eas build -p android --profile production --non-interactive --json > build.json
+          cat build.json
+          BUILD_ID=$(jq -r '.id' build.json)
+          echo "BUILD_ID=$BUILD_ID" >> $GITHUB_OUTPUT
+
+      - name: Download APK
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          cd profitx-mobile-expo
+          eas build:download --platform android --id ${{ steps.build.outputs.BUILD_ID }} --output app.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: profitx-android-apk
+          path: profitx-mobile-expo/app.apk

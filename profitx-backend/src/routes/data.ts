@@ -10,6 +10,7 @@ const incomeRowSchema = z.object({
   gpay: z.string(),
   malliKadai: z.string(),
   market: z.string(),
+  labour: z.string(),
 });
 
 const additionalRowSchema = z.object({
